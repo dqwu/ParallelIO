@@ -270,7 +270,8 @@ PIOc_get_att_tc(int ncid, int varid, const char *name, nc_type memtype, void *ip
             if (ios->async)
                 return ierr;
             else
-                return check_netcdf(file, ierr, __FILE__, __LINE__);
+                /* return check_netcdf(file, ierr, __FILE__, __LINE__); */
+                return ierr;
         }
         PLOG((2, "atttype = %d attlen = %d", atttype, attlen));
 

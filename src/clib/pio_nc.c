@@ -1302,7 +1302,7 @@ int
 PIOc_inq_att(int ncid, int varid, const char *name, nc_type *xtypep,
              PIO_Offset *lenp)
 {
-    return PIOc_inq_att_eh(ncid, varid, name, 1, xtypep, lenp);
+    return PIOc_inq_att_eh(ncid, varid, name, 0, xtypep, lenp);
 }
 
 /**
