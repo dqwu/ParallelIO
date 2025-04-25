@@ -1862,7 +1862,13 @@ PIOc_inq_filter_avail(int ncid, unsigned int id )
     if (ios->ioproc)
     {
         if (file->do_io)
+        {
+#if (NC_VERSION_MAJOR > 4) || (NC_VERSION_MAJOR == 4 && NC_VERSION_MINOR >= 9)
           ierr = nc_inq_filter_avail(file->fh, id);
+#else
+          ierr = PIO_NOERR;
+#endif
+        }
     }
 
     /* Broadcast and check the return code. */
