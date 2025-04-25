@@ -356,14 +356,11 @@ CONTAINS
     integer, intent(in) :: count(:)
     {VTYPE}, target, intent(out) :: ival(*)
     integer(C_SIZE_T), allocatable :: cstart(:), ccount(:)
-    integer :: i, ndims, indims
+    integer :: i, ndims
 
     ierr = pio_inq_varndims(ncid,varid, ndims)
     allocate(cstart(ndims),ccount(ndims))
-    indims = size(start)
-    cstart = 0
-    ccount = 1
-    do i=ndims-indims+1,ndims
+    do i=1,ndims
        cstart(i) = start(ndims-i+1)-1
        ccount(i) = count(ndims-i+1)
     enddo
