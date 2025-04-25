@@ -39,6 +39,9 @@ PIOc_put_att_tc(int ncid, int varid, const char *name, nc_type atttype,
     int mpierr = MPI_SUCCESS, mpierr2;  /* Return code from MPI function codes. */
     int ierr;           /* Return code from function calls. */
 
+    GPTLstart("PIO:PIOc_put_att_tc");
+    GPTLstart("PIO:write_total");
+
     /* Find the info about this file. */
     if ((ierr = pio_get_file(ncid, &file)))
         return pio_err(NULL, NULL, ierr, __FILE__, __LINE__);
@@ -214,6 +217,9 @@ PIOc_put_att_tc(int ncid, int varid, const char *name, nc_type atttype,
         return check_mpi(NULL, file, mpierr, __FILE__, __LINE__);
     if (ierr)
         return check_netcdf(file, ierr, __FILE__, __LINE__);
+
+    GPTLstop("PIO:PIOc_put_att_tc");
+    GPTLstop("PIO:write_total");
 
     return PIO_NOERR;
 }
@@ -957,6 +963,9 @@ PIOc_put_vars_tc(int ncid, int varid, const PIO_Offset *start, const PIO_Offset 
     int mpierr = MPI_SUCCESS, mpierr2;  /* Return code from MPI function codes. */
     int ierr;          /* Return code from function calls. */
 
+    GPTLstart("PIO:PIOc_put_vars_tc");
+    GPTLstart("PIO:write_total");
+
     PLOG((1, "PIOc_put_vars_tc ncid = %d varid = %d start_present = %d "
           "count_present = %d stride_present = %d xtype = %d", ncid, varid,
           start_present, count_present, stride_present, xtype));
@@ -1212,6 +1221,9 @@ PIOc_put_vars_tc(int ncid, int varid, const PIO_Offset *start, const PIO_Offset 
     if (ierr)
         return check_netcdf(file, ierr, __FILE__, __LINE__);
     PLOG((2, "PIOc_put_vars_tc bcast netcdf return code %d complete", ierr));
+
+    GPTLstop("PIO:PIOc_put_vars_tc");
+    GPTLstop("PIO:write_total");
 
     return PIO_NOERR;
 }

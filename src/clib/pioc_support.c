@@ -2056,6 +2056,9 @@ PIOc_createfile_int(int iosysid, int *ncidp, int *iotype, const char *filename,
     int mpierr = MPI_SUCCESS, mpierr2;  /* Return code from MPI function codes. */
     int ierr;              /* Return code from function calls. */
 
+    GPTLstart("PIO:PIOc_createfile");
+    GPTLstart("PIO:write_total");
+
 #ifdef USE_MPE
     pio_start_mpe_log(CREATE);
 #endif /* USE_MPE */
@@ -2240,6 +2243,9 @@ PIOc_createfile_int(int iosysid, int *ncidp, int *iotype, const char *filename,
 #endif /* USE_MPE */
     PLOG((2, "Created file %s file->fh = %d file->pio_ncid = %d", filename,
           file->fh, file->pio_ncid));
+
+    GPTLstop("PIO:PIOc_createfile");
+    GPTLstop("PIO:write_total");
 
     return ierr;
 }

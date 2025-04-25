@@ -654,6 +654,9 @@ PIOc_write_darray(int ncid, int varid, int ioid, PIO_Offset arraylen, void *arra
     int ierr = PIO_NOERR;      /* Return code. */
     size_t io_data_size;          /* potential size of data on io task */
 
+    GPTLstart("PIO:PIOc_write_darray");
+    GPTLstart("PIO:write_total");
+
     PLOG((1, "PIOc_write_darray ncid = %d varid = %d ioid = %d arraylen = %d",
           ncid, varid, ioid, arraylen));
 #ifdef USE_MPE
@@ -838,6 +841,9 @@ PIOc_write_darray(int ncid, int varid, int ioid, PIO_Offset arraylen, void *arra
     PLOG((2, "wmb->num_arrays = %d iodesc->maxbytes / iodesc->mpitype_size = %d "
           "iodesc->ndof = %d iodesc->llen = %d", wmb->num_arrays,
           iodesc->maxbytes / iodesc->mpitype_size, iodesc->ndof, iodesc->llen));
+
+    GPTLstop("PIO:PIOc_write_darray");
+    GPTLstop("PIO:write_total");
 
     return PIO_NOERR;
 }

@@ -203,6 +203,105 @@ PIOc_create(int iosysid, const char *path, int cmode, int *ncidp)
     return PIOc_createfile_int(iosysid, ncidp, &iotype, path, cmode, 0);
 }
 
+/* Internal helper function to perform sync operations
+ * ncid : the ncid of the file to sync
+ * Returns PIO_NOERR for success, error code otherwise
+ */
+static int sync_file(int ncid)
+{
+    iosystem_desc_t *ios;  /* Pointer to io system information. */
+    file_desc_t *file;     /* Pointer to file information. */
+    int mpierr = MPI_SUCCESS, mpierr2;  /* Return code from MPI function codes. */
+    int ierr = PIO_NOERR;  /* Return code from function calls. */
+
+    PLOG((1, "sync_file ncid = %d", ncid));
+
+    /* Get the file info from the ncid. */
+    if ((ierr = pio_get_file(ncid, &file)))
+        return pio_err(NULL, NULL, ierr, __FILE__, __LINE__);
+    ios = file->iosystem;
+
+    /* Flush data buffers on computational tasks. */
+    if (!ios->async || !ios->ioproc)
+    {
+        if (file->writable)
+        {
+            wmulti_buffer *wmb, *twmb;
+
+            PLOG((3, "sync_file checking buffers"));
+            HASH_ITER(hh, file->buffer, wmb, twmb)
+            {
+                /* If there are any data arrays waiting in the
+                 * multibuffer, flush it. */
+                if (wmb->num_arrays > 0)
+                    flush_buffer(ncid, wmb, true);
+                HASH_DEL(file->buffer, wmb);
+                free(wmb);
+
+            }
+            file->buffer = NULL;
+        }
+    }
+
+    /* If async is in use, send message to IO main tasks. */
+    if (ios->async)
+    {
+        if (!ios->ioproc)
+        {
+            int msg = PIO_MSG_SYNC;
+
+            if (ios->compmain == MPI_ROOT)
+                mpierr = MPI_Send(&msg, 1, MPI_INT, ios->ioroot, 1, ios->union_comm);
+
+            if (!mpierr)
+                mpierr = MPI_Bcast(&ncid, 1, MPI_INT, ios->compmain, ios->intercomm);
+        }
+
+        /* Handle MPI errors. */
+        if ((mpierr2 = MPI_Bcast(&mpierr, 1, MPI_INT, ios->comproot, ios->my_comm)))
+            check_mpi(NULL, file, mpierr2, __FILE__, __LINE__);
+        if (mpierr)
+            return check_mpi(NULL, file, mpierr, __FILE__, __LINE__);
+    }
+
+    /* Call the sync function on IO tasks. */
+    if (file->writable)
+    {
+        if (ios->ioproc)
+        {
+            switch(file->iotype)
+            {
+#ifdef _NETCDF4
+            case PIO_IOTYPE_NETCDF4P:
+                ierr = nc_sync(file->fh);
+                break;
+            case PIO_IOTYPE_NETCDF4C:
+#endif
+            case PIO_IOTYPE_NETCDF:
+                if (ios->io_rank == 0)
+                    ierr = nc_sync(file->fh);
+                break;
+#ifdef _PNETCDF
+            case PIO_IOTYPE_PNETCDF:
+                flush_output_buffer(file, true, 0);
+                break;
+#endif
+            default:
+                return pio_err(ios, file, PIO_EBADIOTYPE, __FILE__, __LINE__);
+            }
+        }
+        PLOG((2, "sync_file ierr = %d", ierr));
+    }
+
+    /* Broadcast and check the return code. */
+//    if ((mpierr = MPI_Bcast(&ierr, 1, MPI_INT, ios->ioroot, ios->my_comm)))
+//        return check_mpi(ios, NULL, mpierr, __FILE__, __LINE__);
+    if (ierr)
+        return check_netcdf2(ios, NULL, ierr, __FILE__, __LINE__);
+
+    return ierr;
+}
+
 /**
  * Close a file previously opened with PIO.
  *
@@ -229,11 +328,17 @@ PIOc_closefile(int ncid)
         return pio_err(NULL, NULL, ierr, __FILE__, __LINE__);
     ios = file->iosystem;
 
+    if (file->writable)
+    {
+        GPTLstart("PIO:PIOc_closefile_write_mode");
+        GPTLstart("PIO:write_total");
+    }
+
     /* Sync changes before closing on all tasks if async is not in
      * use, but only on non-IO tasks if async is in use. */
     if (!ios->async || !ios->ioproc)
         if (file->writable)
-            PIOc_sync(ncid);
+            sync_file(ncid);
 
     /* If async is in use and this is a comp tasks, then the compmain
      * sends a msg to the pio_msg_handler running on the IO main and
@@ -301,6 +406,12 @@ PIOc_closefile(int ncid)
 #ifdef USE_MPE
     pio_stop_mpe_log(CLOSE, __func__);
 #endif /* USE_MPE */
+
+    if (file->writable)
+    {
+        GPTLstop("PIO:PIOc_closefile_write_mode");
+        GPTLstop("PIO:write_total");
+    }
 
     return ierr;
 }
@@ -394,95 +505,24 @@ PIOc_deletefile(int iosysid, const char *filename)
 int
 PIOc_sync(int ncid)
 {
-    iosystem_desc_t *ios;  /* Pointer to io system information. */
     file_desc_t *file;     /* Pointer to file information. */
-    int mpierr = MPI_SUCCESS, mpierr2;  /* Return code from MPI function codes. */
     int ierr = PIO_NOERR;  /* Return code from function calls. */
 
-    PLOG((1, "PIOc_sync ncid = %d", ncid));
+    GPTLstart("PIO:PIOc_sync");
 
     /* Get the file info from the ncid. */
     if ((ierr = pio_get_file(ncid, &file)))
         return pio_err(NULL, NULL, ierr, __FILE__, __LINE__);
-    ios = file->iosystem;
 
-    /* Flush data buffers on computational tasks. */
-    if (!ios->async || !ios->ioproc)
-    {
-        if (file->writable)
-        {
-            wmulti_buffer *wmb, *twmb;
-
-            PLOG((3, "PIOc_sync checking buffers"));
-            HASH_ITER(hh, file->buffer, wmb, twmb)
-            {
-                /* If there are any data arrays waiting in the
-                 * multibuffer, flush it. */
-                if (wmb->num_arrays > 0)
-                    flush_buffer(ncid, wmb, true);
-                HASH_DEL(file->buffer, wmb);
-                free(wmb);
-
-            }
-            file->buffer = NULL;
-        }
-    }
-
-    /* If async is in use, send message to IO main tasks. */
-    if (ios->async)
-    {
-        if (!ios->ioproc)
-        {
-            int msg = PIO_MSG_SYNC;
-
-            if (ios->compmain == MPI_ROOT)
-                mpierr = MPI_Send(&msg, 1, MPI_INT, ios->ioroot, 1, ios->union_comm);
-
-            if (!mpierr)
-                mpierr = MPI_Bcast(&ncid, 1, MPI_INT, ios->compmain, ios->intercomm);
-        }
-
-        /* Handle MPI errors. */
-        if ((mpierr2 = MPI_Bcast(&mpierr, 1, MPI_INT, ios->comproot, ios->my_comm)))
-            check_mpi(NULL, file, mpierr2, __FILE__, __LINE__);
-        if (mpierr)
-            return check_mpi(NULL, file, mpierr, __FILE__, __LINE__);
-    }
-
-    /* Call the sync function on IO tasks. */
     if (file->writable)
-    {
-        if (ios->ioproc)
-        {
-            switch(file->iotype)
-            {
-#ifdef _NETCDF4
-            case PIO_IOTYPE_NETCDF4P:
-                ierr = nc_sync(file->fh);
-                break;
-            case PIO_IOTYPE_NETCDF4C:
-#endif
-            case PIO_IOTYPE_NETCDF:
-                if (ios->io_rank == 0)
-                    ierr = nc_sync(file->fh);
-                break;
-#ifdef _PNETCDF
-            case PIO_IOTYPE_PNETCDF:
-                flush_output_buffer(file, true, 0);
-                break;
-#endif
-            default:
-                return pio_err(ios, file, PIO_EBADIOTYPE, __FILE__, __LINE__);
-            }
-        }
-        PLOG((2, "PIOc_sync ierr = %d", ierr));
-    }
+        GPTLstart("PIO:write_total");
 
-    /* Broadcast and check the return code. */
-//    if ((mpierr = MPI_Bcast(&ierr, 1, MPI_INT, ios->ioroot, ios->my_comm)))
-//        return check_mpi(ios, NULL, mpierr, __FILE__, __LINE__);
-    if (ierr)
-        return check_netcdf2(ios, NULL, ierr, __FILE__, __LINE__);
+    ierr = sync_file(ncid);
+
+    if (file->writable)
+        GPTLstop("PIO:write_total");
+
+    GPTLstop("PIO:PIOc_sync");
 
     return ierr;
 }
