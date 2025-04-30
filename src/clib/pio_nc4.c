@@ -1477,7 +1477,13 @@ PIOc_inq_var_filter_ids(int ncid, int varid, size_t *nfiltersp, unsigned int *id
     if (ios->ioproc)
     {
         if (file->do_io)
-          ierr = nc_inq_var_filter_ids(file->fh, varid, nfiltersp, ids);
+        {
+#if (NC_VERSION_MAJOR > 4) || (NC_VERSION_MAJOR == 4 && NC_VERSION_MINOR >= 8)
+            ierr = nc_inq_var_filter_ids(file->fh, varid, nfiltersp, ids);
+#else
+            ierr = PIO_NOERR;
+#endif
+        }
     }
 
     /* Broadcast and check the return code. */
